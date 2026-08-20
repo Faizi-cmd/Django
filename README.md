@@ -10,3 +10,4 @@
 5. Environment variables: File .env atau setting lokal mungkin tidak terbaca di container.
 
 6. Python version: Versi Python di lokal dan container bisa berbeda, menyebabkan incompatibility.
+
