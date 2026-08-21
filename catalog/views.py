@@ -1,65 +1,52 @@
+from django.db import connection, reset_queries
 from rest_framework import viewsets
-from rest_framework.decorators import api_view
+from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.db import connection
 from .models import Course, Lesson
-from .serializers import CourseSerializer, LessonSerializer, CourseWithLessonsSerializer
+from .serializers import CourseSerializer, LessonSerializer
 
 
-# ============================================
-# ViewSet yang sudah ada (jangan dihapus)
-# ============================================
 class CourseViewSet(viewsets.ModelViewSet):
-    queryset = Course.objects.all()
+    queryset = Course.objects.prefetch_related('lessons').all()
     serializer_class = CourseSerializer
+
+    @action(detail=False, methods=['get'], url_path='unoptimized')
+    def unoptimized(self, request):
+        reset_queries()
+        courses = Course.objects.all()
+        data = []
+        for c in courses:
+            lessons = c.lessons.all()
+            data.append({
+                'course': c.title,
+                'lessons': [l.title for l in lessons]
+            })
+        query_count = len(connection.queries)
+        return Response({
+            'version': 'A (Unoptimized)',
+            'query_count': query_count,
+            'data': data
+        })
+
+    @action(detail=False, methods=['get'], url_path='optimized')
+    def optimized(self, request):
+        reset_queries()
+        courses = Course.objects.prefetch_related('lessons').all()
+        data = []
+        for c in courses:
+            lessons = c.lessons.all()
+            data.append({
+                'course': c.title,
+                'lessons': [l.title for l in lessons]
+            })
+        query_count = len(connection.queries)
+        return Response({
+            'version': 'B (Optimized)',
+            'query_count': query_count,
+            'data': data
+        })
 
 
 class LessonViewSet(viewsets.ModelViewSet):
-    queryset = Lesson.objects.all()
+    queryset = Lesson.objects.select_related('course').all()
     serializer_class = LessonSerializer
-
-
-# ============================================
-# VERSI A — TANPA OPTIMASI (N+1 Query Problem)
-# ============================================
-@api_view(['GET'])
-def course_list_unoptimized(request):
-    """
-    Endpoint: GET /api/courses/unoptimized/
-    Total query: 1 + N
-    """
-    connection.queries_log.clear()
-
-    courses = Course.objects.filter(is_active=True)
-    serializer = CourseWithLessonsSerializer(courses, many=True)
-
-    query_count = len(connection.queries)
-
-    return Response({
-        'version': 'A (Unoptimized)',
-        'query_count': query_count,
-        'courses': serializer.data
-    })
-
-
-# ============================================
-# VERSI B — DENGAN OPTIMASI (prefetch_related)
-# ============================================
-@api_view(['GET'])
-def course_list_optimized(request):
-    """
-    Endpoint: GET /api/courses/optimized/
-    Total query: 2
-    """
-    connection.queries_log.clear()
-
-    courses = Course.objects.filter(is_active=True).prefetch_related('lessons')
-    serializer = CourseWithLessonsSerializer(courses, many=True)
-
-    query_count = len(connection.queries)
-
-    return Response({
-        'version': 'B (Optimized)',
-        'query_count': query_count,
-        'courses': serializer.data
-    })
